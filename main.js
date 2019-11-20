@@ -1,120 +1,159 @@
+/*jshint loopfunc: true */
+
 jQuery.fn.shuffleChildren = function(){
     var p = this[0];
 
     if (p.children.length > 0 && !("original_index" in p.children[0])) {
-        for (var i = 0; i < p.children.length; i++) {
+        for (let i = 0; i < p.children.length; i++) {
             p.children[i].original_index = i;
         }
     }
 
-    for (var i = p.children.length; i > 0; i--) {
+    for (let i = p.children.length; i > 0; i--) {
         p.appendChild(p.children[Math.random() * i | 0]);
     }
 };
 
 function swapElements(a, b) {
-    if (a == b) return;
+    if (a === b) return;
     var bp = b.parentNode, ap = a.parentNode;
     var an = a.nextElementSibling, bn = b.nextElementSibling;
-    if (an == b) return bp.insertBefore(b, a);
-    if (bn == a) return ap.insertBefore(a, b);
+    if (an === b) return bp.insertBefore(b, a);
+    if (bn === a) return ap.insertBefore(a, b);
     if (a.contains(b))
         return ap.insertBefore(b, a), bp.insertBefore(a, bn);
     else
         return bp.insertBefore(a, b), ap.insertBefore(b, an);
-};
+}
 
 jQuery.fn.unShuffleChildren = function() {
     var p = this[0];
+    if (p.children.length > 0 && !("original_index" in p.children[0])) {
+        // the object is unshuffled yet
+        return;
+    }
+
     for (var i = 0; i < p.children.length; i++) {
-        while (p.children[i].original_index != i) {
+        while (p.children[i].original_index !== i) {
             var j = p.children[i].original_index;
             swapElements(p.children[i], p.children[j]);
         }
     }
 };
 
-
 // persistent settings
 var defaultSettings = {
     videoscene: {
         main: {
-            style: "table",
-            coverViewColumnWidth: 320,
-            coverViewRandom: true
+            layout: "table",
+            cover_column_width: 320,
+            cover_random: false,
+            cover_showinfo: true,
+            gallary_column_width: 320,
+            gallary_random: false,
+            gallary_showinfo: true,
+            gallary_showimage: true,
+            gallary_showgallary: true,
+            gallary_showbookmark: true
         },
-        artist: {
-            style: "table",
-            coverViewColumnWidth: 320,
-            coverViewRandom: false
-        },
-        vendor: {
-            style: "table",
-            coverViewColumnWidth: 320,
-            coverViewRandom: false
-        },
-        other: {
-            style: "table",
-            coverViewColumnWidth: 320,
-            coverViewRandom: false
+        foreign: {
+            layout: "table",
+            cover_column_width: 320,
+            cover_random: false,
+            cover_showinfo: true,
+            gallary_column_width: 320,
+            gallary_random: false,
+            gallary_showinfo: true,
+            gallary_showimage: true,
+            gallary_showgallary: true,
+            gallary_showbookmark: true
         }
     },
     tagfilter: [],
     showTagSelector: true
 };
 
-var settings = null;
+var SETTINGS = null;
+var UX = {};
+var DATABASE;
+var PARAM = parseParam();
+var FILES = processFilelist(filelist);
+var MINIMUM_TAG_WIDTH = 0;
 
 $(function(){
-    init();
+    init(PARAM);
 });
 
-function init() {
+function init(param) {
+    // vdb.html?_db=xxx&_filter=xxx&prop1=val1&prop2=val2
 
-    // read parameters to `param` object from URI
-    var param;
-    (window.onpopstate = function () {
-        var match,
-            pl     = /\+/g,  // Regex for replacing addition symbol with a space
-            search = /([^&=]+)=?([^&]*)/g,
-            decode = function (s) { return decodeURIComponent(s.replace(pl, " ")); },
-            query  = window.location.search.substring(1);
+    if (!("_db" in param)) {
+        // get summary page
+        for (const name in data) {
+            let a = $('<a>', {href: getLink(null, null, name)}).text(name);
+            $(document.body).append(a);
+            $(document.body).append($('<br>'));
+        }
+        return;
+    }
 
-        param = {};
-        while (match = search.exec(query))
-        param[decode(match[1])] = decode(match[2]);
-    })();
-
-    // vdb.html?artist=陈妍希
-    // vdb.html?filter=战
-    // vdb.html?id=
-    // vdb.html?vendor=
-
-    vdb = conformDatabase(vdb);
-    conformArtistDB();
     loadSettings();
+    conformDatabase();
+    
+    DATABASE = data[param._db];
+    UX = presentation[param._db];
 
-    if (param.artist) {
-        $(document.body).append(createArtistPage(param.artist));
-        document.title = param.artist;
-        return;
+
+    // apply filters
+    let property_filter_count = 0;
+    let property_filter_name = "";
+    Object.keys(param).forEach(name => {
+        if (!name.startsWith("_")) {
+            property_filter_count++;
+            property_filter_name = name;
+            DATABASE = DATABASE.filter(item => {
+                return matchprop(item[name], param[name]);
+            });
+        }
+    });
+
+    /** We will show a detailed info page for urls like:
+     *  - ...name=xxx
+     *  - ...artist=yyy
+     * 
+     *  However, when detailed page is shown, it's ugly to place filter/tags below as usual.
+     *  so we will hide them in such case.
+     * 
+     *  But this lose a freedom to just show filter/tags normally. A special parameter '_vt=normal'
+     *  will enforce a normal view. Search `_vt=normal` to learn how to trigger that.
+    */
+    if (property_filter_count == 1 && param._vt != "normal") {
+        let item = null;
+        const prop = property_filter_name;
+        const val = param[prop];
+        const db = prop === "name" ? DATABASE : data[prop];
+        const ux = prop === "name" ? UX : presentation[prop];
+        if (db) {
+            item = db.find(item => aequal(item.name, val)) || { name: val };
+            $(document.body).append(createDetailInfoPage(item, ux));
+            if (DATABASE.length === 1 && prop === "name") {
+                return;
+            }
+            $(document.body).append(createVideoScene(DATABASE, SETTINGS.videoscene.foreign));
+            return;
+        }
     }
 
-    if (param.id) {
-        $(document.body).append(createMoviePage(param.id));
-        document.title = param.id;
-        return;
+    if (param._filter) {
+        $("#filter").val(param._filter);
     }
 
-    if (param.vendor) {
-        $(document.body).append(createVendorPage(param.vendor));
-        document.title = param.vendor;
-        return;
+    if (property_filter_count > 0) {
+        $("#filtericon").addClass("stress");
     }
 
-    if (param.filter) {
-        $("#filter").val(param.filter);
-    }
+    let allprops = DATABASE.reduce((v,c) => v.concat(Object.keys(c)), []);
+    $("#help_props").text([...new Set(allprops)].join(", "));
 
     $("#mainpage").show();
     
@@ -125,209 +164,228 @@ function init() {
         refreshView();
     });
 
-
-    settings.showTagSelector? $("#tagfilter").show() : $("#tagfilter").hide();
+    if (SETTINGS.showTagSelector) {
+        $("#tagfilter").show();
+    } else {
+        $("#tagfilter").hide();
+    }
+        
     $("#btn_tag").on("click", function(){
-        settings.showTagSelector = !settings.showTagSelector;
+        SETTINGS.showTagSelector = !SETTINGS.showTagSelector;
         saveSettings();
-        if (settings.showTagSelector) {
+        if (SETTINGS.showTagSelector) {
             $("#tagfilter").show();
             layoutTagFilters();
         } else {
             $("#tagfilter").hide();
         }
     });
+
+    $("#btn_help").on("click", function() {
+        $(this).toggleClass("btn-primary btn-secondary");
+        $("#help_card").toggle($(this).hasClass("btn-primary"));
+    });
+
+    $("#btn_clear").click(() => {
+        $("#filter").val("");
+        $("#filter").trigger("change");
+    });
+
+    $("#btn_refresh_filelist").click(function(){
+        window.open("tpvis:refresh?url=" + window.location, "_self");
+    });
+}
+
+// compare equality considering aliases
+function aequal(a, b) {
+    return getAlias(a).indexOf(b) >= 0;
+}
+
+function getAlias(value) {
+    for (const a of aliases) {
+        if (a.indexOf(value) >= 0) return a;
+    }
+    return [value];
+}
+
+function getOtherAlias(value) {
+    return getAlias(value).filter(x => x !== value);
+}
+
+function parseParam() {
+    var match,
+    pl     = /\+/g,  // Regex for replacing addition symbol with a space
+    search = /([^&=]+)=?([^&]*)/g,
+    decode = function (s) { return decodeURIComponent(s.replace(pl, " ")); },
+    query  = window.location.search.substring(1);
+
+    param = {};
+    while ((match = search.exec(query)) !== null) {
+        param[decode(match[1])] = decode(match[2]);
+    }
+
+    return param;
 }
 
 function saveSetting(varName, val) {
-    settings[varName] = val;
+    SETTINGS[varName] = val;
     saveSettings();
 }
 
 function saveSettings() {
-    try {
-        localStorage.vdbsetting = JSON.stringify(settings);
-        // console.log(localStorage.vdbsetting);
-    } catch (e) {}
+    let settingName = PARAM._db + "_setting";
+    localStorage[settingName] = JSON.stringify(SETTINGS);
 }
 
 function loadSettings() {
+    let settingName = PARAM._db + "_setting";
     try {
-        var settingstr = localStorage.vdbsetting;
+        var settingstr = localStorage[settingName];
         if (settingstr) {
-            settings = JSON.parse(settingstr);
+            SETTINGS = JSON.parse(settingstr);
             // merge new properties from defaultSettings to setting to support upgrade scenario
             for (var name in defaultSettings) {
-                if (!(name in settings)) {
-                    settings[name] = defaultSettings[name];
+                if (!(name in SETTINGS)) {
+                    SETTINGS[name] = defaultSettings[name];
                 }
             }
         } else {
-            settings = defaultSettings;
+            SETTINGS = defaultSettings;
         }
-    } catch (e) {}
-}
-
-function getLink(key, value) {
-    return "vdb.html?" + key + "=" + encodeURIComponent(value);
-}
-
-function getCoverFileName(v) {
-    return imagedir + "/cover/" + getVideoFileID(v) + ".jpg";
-}
-
-function getPreviewFileName(v) {
-    return imagedir + "/preview/" + getVideoFileID(v) + ".gif";
-}
-
-function getScreenShotFileName(v) {
-    return imagedir + "/screenshot/" + getVideoFileID(v) + ".jpg";
-}
-
-function getPortraitFileName(v) {
-    return imagedir + "/portrait/" + getVideoFileID(v) + ".jpg";
-}
-
-function getVideoFileID(v) {
-    return v.id? v.id : v.title;
-}
-
-function getVideoDisplayName(v) {
-    return v.title? v.title : v.id;
-}
-
-function getVideoFullDisplayName(v) {
-    return (v.id? v.id + " " : "") + (v.title? v.title : "");
-}
-
-function getVideoVendor(v) {
-    if (v.id) {
-        var result = /^(..[^-]*?)(HD)?-/.exec(v.id);
-        return result? result[1] : v.id;
-    } else {
-        return "UNKNOWN";
+    } catch (e) {
+        SETTINGS = defaultSettings;
     }
 }
 
-function conformDatabase(db) {
-    // the video db is an array of video objects
-    // the video object contains the following properties:
-    //   - id:       useful to track a series of videos with shorten name. others may not have an id.
-    //   - title:    for video series, they may not have an title.
-    //   - artists:  array
-    //   - date:     string like "2011-04-23"
-    //   - tags:     array. tags is used to filter videos
-    //   - bookmark: an object with properties as "offset":"description" format like:
-    //               { "00:30:30": "fun", "01:00:03": "joke at about 1 hour" }
-
-    // besides that, the object can contains arbitrary other string properties, 
-    // these properties will appear in the video detailed page
-
-    // to get video display name, use `title` then `id`
-    // to get video file name, use `id` then `title`
-
-    for (v of db) {
-
-        // Allow writing space seperated values to represent array for convenience
-        // We convert here, if needed
-        
-        if (!v.tags) v.tags = "";
-        if (v.tags.constructor != Array) {
-            v.tags = v.tags.split(" ").filter(s => s.length > 0);
-        }
-
-        if (!v.artists) v.artists = "";
-        if (v.artists.constructor != Array) {
-            v.artists = v.artists.split(" ").filter(s => s.length > 0);
-        }
+function getLink(key, value, db) {
+    if (!db) db = PARAM._db;
+    let url = "vdb.html?_db=" + db;
+    if (key) {
+        url += "&" + key + "=" + encodeURIComponent(value);
     }
-
-    return db.filter(v => v.id || v.title);
+    return url;
 }
 
-function conformArtistDB() {
-    for (a of artistdb) {
-        if (a.name.constructor !== Array) {
-            a.name = [a.name];
+function processFilelist(filelist) {
+    var files = [];
+    var re = /^.*\/([^/]+)\.[A-Za-z0-9]+$/i;
+    for (const f of filelist.split("\n").filter(s => s.length > 0)) {
+        let r = f.match(re);
+        if (r) {
+            files.push({
+                name: r[1],
+                path: f,
+            });
+        }
+    }
+    return files;
+}
+
+// primary image represents the `name`. e.g. the cover image of a movie, the head image of an artist, etc
+function getImage(name) {
+    for (const f of FILES) {
+        if (name.indexOf(f.name) >= 0) {
+            return f.path;
         }
     }
 }
 
-function findArtistByName(str) {
-    return artistdb.find(a => a.name.indexOf(str) >= 0);
+function getGallaryFiles(name) {
+    var r = [];
+    for (const f of FILES) {
+        let i = f.name.lastIndexOf("_");
+        if (i >= 0) {
+            let n = f.name.substr(0, i);
+            let e = f.name.substr(i+1);
+            if (name.indexOf(n) >= 0) {
+                r.push(f);
+            }
+        }
+    }
+    return r;
+}
+
+function conformDatabase() {
+    for (const dbname in data) {
+        let db = data[dbname];
+        if (dbname in presentation) {
+            for (const item of db) {
+                for (const prop of (presentation[dbname].extra_props || [])) {
+                    let val = prop.func(item);
+                    if (val !== undefined) {
+                        item[prop.name] = prop.func(item);
+                    }
+                }
+            }
+        }
+        for (const item of db) {
+            item._tags = alltags(item, presentation[dbname]);
+        }
+    }
+
+    Object.keys(presentation).forEach(key => {
+        let item = presentation[key];
+        item.actions = flatten(item.actions.map(v => v == "defaults"? getDefaultSearchActions() : v));
+    });
 }
 
 // movie playing needs "play:" protocol registration.
 // see "register_play_urlprotocol.bat" for details
 function playMovie(itemid, offset) {
-    var urlprotocol = offset? "play:" + itemid + "@" + offset : "play:" + itemid;
-    try {
-        // mshta: "windows.open" approach will open an IE frame window asking user confirmation,
-        // which is a bad experience. so do special handling here.
-        var shellapp = new ActiveXObject("Shell.Application");
-        shellapp.ShellExecute(urlprotocol);
-    } catch (e) {
-        window.open(urlprotocol, "_self");
-    }
+    var url = offset? "play:" + itemid + "@" + offset : "play:" + itemid;
+    console.log("play video: " + url);
+    window.open(url, "_self");
 }
 
-function getAllProperties(db) {
-    var properties = [];
-    for (var i in db) {
-        var item = db[i];
-        for (var p in item) {
-            if (properties.indexOf(p) == -1) properties.push(p);
-        }
+function createLinkContent(item, prop, collapse) {
+    if (!(prop in item) || !item[prop]) return null;
+
+    if (item[prop] instanceof Array) {
+        return createArtistLinks(prop, item[prop], collapse);
     }
 
-    return properties;
+    const v = item[prop];
+    return createLink(getLink(prop, v), v);
 }
 
-function createBookmarks(db) {
-    var tbl = $('<table>').addClass("table table-striped table-bordered datatable");
-    
-    var properties = ["id", "time", "comment"];
-
-    // create thead
-    var tr = $('<tr>');
-    tbl.append($('<thead>').append(tr));
-    for (var i in properties) {
-        tr.append($('<th>').text(properties[i]).addClass(properties[i]));
+function uistr(item, prop, ux) {
+    if (!ux) ux = UX;
+    if (ux.tostring && ux.tostring[prop]) {
+        return ux.tostring[prop](item[prop]);
     }
 
-    var tbody = $('<tbody>');
-    tbl.append(tbody);
+    if (!item[prop]) return "";
 
-    for (item of db) {
-        var id = getVideoFileID(item);
-        for (var t in item.bookmark) {
-            var tr = $('<tr>');
-            tbody.append(tr);
-            tr.append($('<td>').append($('<a>', {href: getLink("id", id)}).text(id)));
-            tr.append($('<td>').text(t));
-            tr.append($('<td>').append($('<a>', {onclick: 'playMovie("' + id + '", "' + t + '")'}).text(item.bookmark[t])));
-        }
-    }
-
-    if (tbody.children().length > 0) {
-        tbl.DataTable({paging: false, info: false, filter: false, bAutoWidth: false});
-    }
-
-    return tbl;
+    return String(item[prop]);
 }
 
 function createDataTable(db) {
     var tbl = $('<table>').addClass("table table-striped table-bordered datatable responsive");
     
-    // It's not a good idea to table all properties, we just pick the most useful properties here
-    var allprops = ["id", "title", "artists", "date"];
-    var properties = [];
-    for (var i in allprops) {
-        var prop = allprops[i];
-        for (var j in db) {
-            var item = db[j];
-            if (item[prop] && item[prop].length > 0) {
-                properties.push(prop);
+    var properties = UX.table_properties;
+
+    // get data
+    var arr = [];
+    for (const item of db) {
+        var row = [];
+        for (const p of properties) {
+            let val = null;
+            if (p === "name" || opt(UX, "group_properties", []).indexOf(p) >= 0) {
+                val = createLinkContent(item, p, true);
+            } else {
+                val = uistr(item, p);
+            }
+            row.push(val);
+        }
+        arr.push(row);
+    }
+
+    let columnStatus = [];
+    for (let i = 0; i < properties.length; i++) {
+        columnStatus[i] = false;
+        for (const row of arr) {
+            if (row[i]) {
+                columnStatus[i] = true;
                 break;
             }
         }
@@ -336,71 +394,63 @@ function createDataTable(db) {
     // create thead
     var tr = $('<tr>');
     tbl.append($('<thead>').append(tr));
-    for (var i in properties) {
-        tr.append($('<th>').text(properties[i]).addClass(properties[i]));
+    for (let i = 0; i < properties.length; i++) {
+        const prop = properties[i];
+        if (columnStatus[i]) {
+            tr.append($('<th>').text(prop).addClass(prop));
+        }
     }
 
     // create tbody
     var tbody = $('<tbody>');
     tbl.append(tbody);
-    for (var i in db) {
-        var item = db[i];
-        var tr = $('<tr>');
+    for (const row of arr) {
+        tr = $('<tr>');
         tbody.append(tr);
-        for (var j in properties) {
-            var p = properties[j];
-            if (p == "id" || p == "title") {
-                tr.append($('<td>').addClass(p)
-                          .append($('<a>', {href: getLink("id", getVideoFileID(item))}).text(item[p])));
-            } else if (p == "artists") {
-                tr.append($('<td>').addClass(p).append(createArtistLinks(item, true)));
-            } else {
-                tr.append($('<td>').addClass(p).text(item[p]).addClass(p));
+        for (let i = 0; i < properties.length; i++) {
+            const prop = properties[i];
+            if (columnStatus[i]) {
+                let td = $('<td>').addClass(prop);
+                if (row[i] !== null) td.append(row[i]);
+                tr.append(td);
             }
         }
     }
 
-    if (db.length > 0) {
-        tbl.DataTable({paging: false, info: false, filter: false, bAutoWidth: false, responsive: true});
+    if (tbl.find("thead th").length > 0) {
+        tbl.DataTable({paging: false, info: true, filter: false, bAutoWidth: false, responsive: true, order: []});
+        //tbl.DataTable({info:true});
     }
 
     return tbl;
 }
 
-function createArtistLinks(item, collapse) {
+function createArtistLinks(prop, arr, collapse) {
+    if (!arr || arr.lenght === 0) return null;
+
     var allspan = $('<span>');
-    var artists = item.artists;
-    for (var i in artists) {
+    for (let i = 0; i < arr.length; i++) {
         if (i > 0) {
-            allspan.append(" / ");
+            allspan.append($('<span>').text(" / "));
         }
-        var artist = artists[i];
-        allspan.append($('<a>', {href: getLink("artist", artist)}).text(artist));
+        var item = arr[i];
+        allspan.append($('<a>', {href: getLink(prop, item)}).text(item));
     }
 
-    if (item.artists.length <= 4 || !collapse) {
+    if (arr.length <= 4 || !collapse) {
         return allspan;
     }
 
     // if there are so many artists, return a shorten list with a expand functionality
+
     var div = $('<div>');
     var shortenspan = $('<span>');
-    for (var i in artists) {
-        if (i > 0) {
-            shortenspan.append(" / ");
-        }
-        var artist = artists[i];
-        shortenspan.append($('<a>', {href: getLink("artist", artist)}).text(artist));
-        if (i >= 2) break;
-    }
-
+    shortenspan.append(allspan.children().slice(0, 5).clone());
     shortenspan.append(" / ");
-    shortenspan.append($('<a>').text("...").on("click", function(s, a){
-        return function() {
-            s.hide();
-            a.show();
-        }
-    }(shortenspan, allspan)));
+    shortenspan.append($('<a>').text("...").on("click", function() {
+        shortenspan.hide();
+        allspan.show();
+    }));
 
     allspan.hide();
     div.append(allspan).append(shortenspan);
@@ -408,134 +458,129 @@ function createArtistLinks(item, collapse) {
     return div;
 }
 
-function createBookmarkLinks(item) {
-    var span = $('<span>');
-    var i = 0;
-    for (var t in item.bookmark) {
-        if (i > 0) {
-            span.append(" / ");
+function createPlayLink(name, time, title) {
+    return $('<span>').addClass("smallplay").text(title).click(()=>playMovie(name, time));
+}
+
+function createFigCaption(arr) {
+    var figcaption = $('<figcaption>');
+    separate(arr, () => $("<br>")).forEach(x => figcaption.append(x));
+    return figcaption;
+}
+
+function createGallaryFigure(name, url, gallary, showname) {
+    let head = null;
+    let cls = "gallary-figure";
+
+    if (url) {
+        for (const ext of ["mp4", "wmv", "mkv", "mov"]) {
+            if (url.endsWith(ext)) {
+                head = $('<video />', {
+                    src: url,
+                    type: `video/${ext}`,
+                    controls: true
+                });
+            }
         }
 
-        span.append($('<a>', {onclick: 'playMovie("' + getVideoFileID(item) + '", "' + t + '")'}).text(item.bookmark[t]));
-        
-        i++;
+        if (!head) {
+            head = $('<a>', {href: url, target: "_blank"}).append($('<img>', {src: url}));
+        }
     }
-    return span;
-}
 
-function createBigPlayButton(item) {
-    return $('<button>').addClass("btn btn-lg btn-success")
-        .click(function() {playMovie(getVideoFileID(item)); })
-        .text("Play Movie");
-}
-
-function createSmallPlayButton(item) {
-    return $('<span aria-hidden="true">').addClass("glyphicon glyphicon-play smallplay")
-        .click(function() {playMovie(getVideoFileID(item)); });
-}
-
-// creates a column-based image gallary that shows images with increased seq number.
-// stop on first non-exist image.
-function createImageGallary(prefix) {
-    var div = $('<div>').addClass("freewall");
-    div.data("nextImageID", 1);
+    let captions = [];
+    if (gallary) {
+        if (gallary.name) captions.push($("<span>").text(gallary.name));
+        if (gallary.time) {
+            captions.push(createPlayLink(name, gallary.time, "▶️ " + gallary.time));
+            cls = "bookmark-figure";
+        }
+        if (gallary.desc) captions.push($("<span>").text(gallary.desc));
+    }
+    if (showname) captions.push(createLink(getLink("name", name), name));
     
-    var loadNextImage = function() {
-        var imageid = div.data("nextImageID");
-        div.data("nextImageID", imageid + 1);
-        var url = prefix + "_" + imageid.toString() + ".jpg";
-        div.append($('<figure>').append($('<a>', {href: url, target: "_blank"})
-                      .append($('<img>', {src: url}).load(function(){
-                          loadNextImage();
-                      }).error(function() {
-                          $(this).parent().parent().hide();
-                          div.show();
-                      })
-        )));
-    };
+    var figure = $('<figure>').addClass(cls).append(head).append(createFigCaption(captions));
+    return figure;
+}
 
-    //div.append($('<div>'));
-    setColumnWidth(div, 240);
-    div.hide();
+// creates a column-based image/video gallary:
+// 1. images with increased seq number, stop on first non-exist image.
+// 2. explict images/videos in `gallary` property
+function createGallary(db, showname) {
+    var div = $('<div>').addClass("freewall");
+    //setColumnWidth(div, 240);
+    
+    db.forEach(function(item) {
+        let gfs = getGallaryFiles(item.name);
+        let usedfiles = {};
+        if (item.gallary) {
+            item.gallary.forEach(function(g) {
+                let f = gfs.find(p => p.path.indexOf(g.name) >= 0);
+                if (f) {
+                    usedfiles[f.path] = true;
+                } else {
+                    f = {path:""};
+                }
+                div.append(createGallaryFigure(item.name, f.path, g, showname));
+            });
+        }
 
-    for (var i = 0; i < 3; i++)
-        loadNextImage();
+        for (let f of gfs) {
+            if (f.path in usedfiles) continue;
+            let gallaryName = ext(f.name, "_");
+            if (gallaryName.match(/^[0-9]+$/)) gallaryName = null;
+            div.append(createGallaryFigure(item.name, f.path, {name: gallaryName}, showname));
+        }
+    });
 
     return div;
 }
 
-// append 2 image layer to `obj`
-// if mouse hover and preview image exists, show the preview image, otherwise show the base image
-function createHoverPreviewWidget(baseimg, previewimg, target) {
+function ext(s, splitter) {
+    let p = s.lastIndexOf(splitter);
+    if (p >= 0) return s.substr(p+1);
+    return p;
+}
+
+function createImageLink(img, url) {
     var div = $('<div>');
-    var cover_img = $('<img>', {src: baseimg, alt: "no image"});
-
-    var preview_img = $('<div>')
-        .css("background-image", "url('" + previewimg + "'), url('" + baseimg + "')")
-        .css("background-position", "center center")
-        // use `contain` to see the full zoomed background
-        .css("background-size", "cover")
-        .css("background-repeat", "no-repeat");
-
-    preview_img.hide();
+    var cover_img = $('<img>', {src: img, alt: "no image"});
     
-    if (target) {
-        div.append($('<a>', {href: target}).append(cover_img).append(preview_img));
-        //preview_img.click(clickfn).css("cursor", "pointer");
+    if (url) {
+        div.append($('<a>', {href: url}).append(cover_img));
     } else {
-        div.append(cover_img).append(preview_img);
+        div.append(cover_img);
     }
-
-    fp = function (ci, pi) {
-        return function () {
-            pi.height(ci.height());
-            pi.width(ci.width());
-            pi.show();
-            ci.hide();
-        }
-    }(cover_img, preview_img);
-
-    fc = function (ci, pi) {
-        return function () {
-            ci.show();
-            pi.hide();
-        }
-    }(cover_img, preview_img);
-
-    cover_img.on("mouseenter touchstart", fp);
-    cover_img.on("touchend", fc);
-    preview_img.on("mouseleave", fc);
 
     return div;
 }
 
 function createCoverWall(db) {
     var wall = $('<div>').addClass("freewall");
-    for (var i in db)
-    {
-        var item = db[i];
+    db.forEach(function(item){
         var caption = $('<figcaption>');
-        caption.append(createSmallPlayButton(item));
-        caption.append(" ");
-        caption.append(getVideoFullDisplayName(item));
-        caption.append($('<br>'));
-        caption.append(createArtistLinks(item));
+        opt(UX, "wall_actions", []).forEach(function(actname) {
+            const action = UX.actions.find(x => x.name === actname);
+            let actspan = createActionSpan(action, actname, item.name);
+            caption.append(actspan);
+            caption.append(" ");
+        });
+
+        let props = UX.wall_properties.map(x => item[x])
+                                      .filter(x => x)
+                                      .map(x => $('<span>').text(x));
+        separate(props, () => $('<br>')).forEach(x => caption.append(x));
 
         var figure = $('<figure>');
-        figure.append(createHoverPreviewWidget(
-            getCoverFileName(item), 
-            getPreviewFileName(item),
-            getLink("id", getVideoFileID(item))
-        ));
+        figure.append(createImageLink(getImage(item.name), getLink("name", item.name)));
         figure.append(caption);
-
         wall.append(figure);
 
         // chrome failed to layout correctly. it place at least 2 into one columns then start to consider the its right column.
         // for example if we only have 2 items, these 2 items will all in the first column, leaving other columns empty.
         // the following code solves chrome layout issue.
         wall.append($('<div>'));
-    }
+    });
     return wall;
 }
 
@@ -560,6 +605,7 @@ function setColumnWidth(wall, columnWidth) {
 // -> column_count <= (width - gap) / (column_width + gap)
 function setColumnCount(wall, columnCount) {
     if (!columnCount) return;
+    console.log(`set column count: ${columnCount}`);
    
     var width = wall.innerWidth();
     var gap = parseInt(cbcss(wall, "column-gap"));
@@ -587,65 +633,48 @@ function decreaseColumn(wall) {
 }
 
 function match(item, text) {
-    for (var i in item) {
-        var str = item[i].toString();
-        if (str.toLowerCase().indexOf(text.toLowerCase()) != -1) return true;
-    }
-
-    // make sure we can find item by artist's other names
-    for (var i in artistdb) {
-        var artist = artistdb[i];
-        if (matchArtistPartial(artist, text)) {
-            for (var i in artist.name) {
-                if (item.artists.indexOf(artist.name[i]) != -1) return true;
-            }
+    for (const prop in item) {
+        if (typeof item[prop] === "object") {
+            if (match(item[prop], text)) return true;
+        } else {
+            var str = item[prop].toString();
+            if (str.toLowerCase().indexOf(text.toLowerCase()) !== -1) return true;
+            let r = PinyinMatch.match(str.toLowerCase(), text.toLowerCase());
+            console.log(r);
+            if (r) return true;
         }
     }
 
     return false;
 }
 
-function matchArtistPartial(artist, text) {
-    var lt = text.toLowerCase();
-    for (var i in artist.name) {
-        if (artist.name[i].toLowerCase().indexOf(lt) != -1) return true;
+function matchprop(propval, text) {
+    if (propval === undefined && text == "undefined") {
+        return true;
     }
-    return false;
+    return arraylize(propval).find(x => aequal(x, text)) !== undefined;
 }
 
-function getArtistNames(str) {
-    var a = artistdb.find(a => a.name.indexOf(str) >= 0);
-    return a? a.name : [str];
-}
-
-function getArtistPrimaryName(a) {
-    return getArtistNames(a)[0];
-}
-
-function matchArtist(item, str) {
-    var names = getArtistNames(str);
-    for (var i = 0; i < names.length; i++) {
-        if (item.artists.indexOf(names[i]) != -1) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function applyTagFilter(db, filter) {
-    if (!filter || !filter.length) return db;
+function applyTagFilter(db, filters) {
+    if (!filters || !filters.length) return db;
 
     var filteredDB = [];
-    for (var i in db) {
-        var item = db[i];
-        var meet = true;
-        for (var j in filter) {
-            if (item.tags.indexOf(filter[j]) < 0) {
-                meet = false;
+    for (const item of db) {
+        var tags = item._tags;
+        for (const filtergroup of filters) {
+            var meet = true;
+            for (const f of filtergroup.tags) {
+                let index = tags.indexOf(f.tagname);
+                if (!f.invert && index < 0 || f.invert && index >= 0) {
+                    meet = false;
+                    break;
+                }
+            }
+            if (meet) {
+                filteredDB.push(item);
                 break;
             }
         }
-        if (meet) filteredDB.push(item);
     }
 
     return filteredDB;
@@ -657,8 +686,9 @@ function applyTextFilter(db, filter) {
     var filterfunc = null;
 
     // if filter contains >, =, <, we will treat filter as js expression
-    if (filter[0] == ' ') {
-        eval("filterfunc = function(item) { " +
+    if (isExpFilter(filter)) {
+        /* jshint -W061 */
+        eval("filterfunc = function(item, i) { " +
             "    with (item) {" +
             "        try { if (" + filter + ") return true; } catch (e) {}" +
             "    }" +
@@ -666,36 +696,61 @@ function applyTextFilter(db, filter) {
             "};");
     }
 
-    if (filterfunc == null) {
+    if (filterfunc === null) {
         var terms = filter.split(" ");
-        filterfunc = function (item) {
-            for (var i in terms) {
-                if (terms[i].length > 0 && !match(item, terms[i])) return false;
+        filterfunc = function (item, i) {
+            for (const term of terms) {
+                if (term.length > 0 && !match(item, term)) return false;
             }
             return true;
-        }
+        };
     }
 
     var filteredDB = [];
-    for (var i in db) {
-        var item = db[i];
-        if (filterfunc(item)) filteredDB.push(item);
-    }
+    db.forEach((item, i) => {
+        if (filterfunc(item, i)) filteredDB.push(item);
+    });
 
     return filteredDB;
 }
 
 // propertyFunc : function(v) => string  or  function(v) => [string, ...]
-function createLinksGroupbyProperty(db, propertyName, propertyFunc) {
+function createLinksGroupbyProperty(db, prop) {
     var div = $('<div>');
-    var propertyValues = db.reduce((a, v) => a.concat(propertyFunc(v)), []);
+
+    var propertyValues = db.reduce((a, v) => a.concat(v[prop.name]), []);
+    propertyValues = propertyValues.map(v=>getAlias(v)[0]);
     var group = groupSame(propertyValues);
 
-    for (g of group.sortedArray) {
-        div.append($('<a>', {href:getLink(propertyName, g)}).text(g));
+    for (const g of group.sortedArray) {
+        div.append($('<a>', {href:getLink(prop.name, g)}).text(g?g:"<empty>"));
         if (group.frequency[g] > 1)
             div.append('(' + group.frequency[g].toString() + ')');
         div.append(' ');
+    }
+
+    if (prop.chart) {
+        let canvas = $("<canvas>").attr("height", 50);
+        div.append(canvas);
+
+        let labels = group.sortedArray;
+        if (prop.sort == "value") {
+            labels = labels.sort();
+        }
+
+        let ctx = canvas[0].getContext("2d");
+        var chart = new Chart(ctx, {
+            type: prop.chart,
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: prop.name,
+                    data: labels.map(v => group.frequency[v]),
+                    backgroundColor: labels.map(l => "rgb(" + hashcolor(l, 0.5, 0.8).join(",") + ")"),
+                    maintainAspectRatio: false
+                }]
+            }
+        });
     }
 
     return div;
@@ -704,48 +759,54 @@ function createLinksGroupbyProperty(db, propertyName, propertyFunc) {
 function createGroupedLinks(db) {
     var div = $('<div>');
 
-    var getVideoArtists = v => v.artists.map(a => getArtistPrimaryName(a));
-    div.append(createPanel(createLinksGroupbyProperty(db, "artist", getVideoArtists), "panel-danger", "by artist"));
-
-    div.append(createPanel(createLinksGroupbyProperty(db, "vendor", getVideoVendor), "panel-info", "by vendor"));
+    for (let prop of UX.group_properties) {
+        if (typeof prop !== "object") {
+            prop = {name: prop};
+        }
+        div.append(createPanel(createLinksGroupbyProperty(db, prop), "panel-info", "by " + prop.name));
+    }
 
     return div;
 }
 
-function incCounter(obj, prop) {
-    obj[prop] = (obj[prop] || 0) + 1;
+function unused_1() {
+    
 }
 
-// input: ["b", "a", "b", "a", "c", "a"]
-// output: {sortedArray: ["a", "b", "c"], frequency: {"a":3, "b":2, "c":1}}
-function groupSame(arr) {
-    var frequency = {};
-    for (var i in arr) incCounter(frequency, arr[i]);
-    var sortedArray = Object.keys(frequency).sort(function(a,b) { return frequency[b] - frequency[a]; });
-    return {sortedArray: sortedArray, frequency: frequency};
+function createLink(url, text) {
+    return $('<a>', {href:url}).text(text);
 }
 
-function getDbKey(db) {
-    if (db == null) return "";
-    var key = "";
-    for (var i in db) {
-        key += getVideoFileID(db[i]);
-    }
-    return key;
+function isExpFilter(f) {
+    return f.indexOf(">") >= 0 || f.indexOf("<") >= 0 || f.indexOf("=") >= 0;
 }
 
 function refreshView() {
     var filter = $('#filter').val();
     var view = $('#main_view');
 
-    var db = applyTagFilter(vdb, settings.tagfilter);
+    if (filter == "") {
+        $("#btn_clear").hide();
+    } else {
+        $("#btn_clear").show();
+    }
+
+    if (isExpFilter(filter)) {
+        $('#filter').addClass("expfilter");
+    } else {
+        $('#filter').removeClass("expfilter");
+    }
+
+    var db = applyTagFilter(DATABASE, SETTINGS.tagfilter);
     db = applyTextFilter(db, filter);
-    var key = getDbKey(db);
+    var newkey = db.reduce((r, v) => r + v.name, "");
     updateTagHitCounts(db);
 
-    var savedKey = view.data("key");
-    if (savedKey == key) return;
-    view.data("key", key);
+    $("#item_count").text(" " + db.length);
+
+    var oldkey = view.data("key");
+    if (oldkey === newkey) return;
+    view.data("key", newkey);
 
     var child = null;
     var savedScene = view.data("savedScene");
@@ -754,337 +815,471 @@ function refreshView() {
         view.data("savedScene", savedScene);
     }
 
-    if (key in savedScene) {
-        child = savedScene[key];
+    if (newkey in savedScene) {
+        child = savedScene[newkey];
         console.log("cache hit");
     } else {
-        child = createVideoScene(db, settings.videoscene.main);
-        savedScene[key] = child;
+        child = createVideoScene(db, SETTINGS.videoscene.main);
+        savedScene[newkey] = child;
         view.append(child);
         console.log("create new scene");
     }
 
-    if (savedKey in savedScene)
-        savedScene[savedKey].hide();
+    if (oldkey in savedScene)
+        savedScene[oldkey].hide();
+    
     child.show();
-    child.find("#btn_" + settings.videoscene.main.style + "_layout").click();
+    // it's needed because the old, saved scene may be not in latest layout
+    child.find("#btn_" + SETTINGS.videoscene.main.layout + "_layout").click();
 }
 
-function getDefaultSearchEngines(term) {
-    return [
-        {
-            text: "google",
-            url: "https://www.google.com/search?q=" + term
-        },
-        {
-            text: "baidu",
-            url: "http://www.baidu.com/s?wd=" + term
-        },
-        {
-            text: "bing",
-            url: "https://www.bing.com/search?q=" + term
-        },
-        {
-            text: "豆瓣",
-            url: "https://www.douban.com/search?q=" + term
-        },
-        {
-            text: "115",
-            // https://115.com/?url={/?aid=-1&search_value=TEXT&ct=file&ac=search&is_wl_tpl=1&submode=wangpan&mode=search}
-
-            url: "https://115.com/?url="
-                 + encodeURIComponent("/?aid=-1&search_value=" + term + "&ct=file&ac=search&is_wl_tpl=1")
-                 + "&submode=wangpan&mode=search"
-        }
-    ];
-}
-
-function createSearchLinks(text) {
-    var engines = getDefaultSearchEngines(text);
-    if (window.getSearchEngines) {
-        engines = engines.concat(getSearchEngines(text));
-    }
-
-    var p = $('<span>');
-    for (var i in engines) {
-        var eng = engines[i];
-        p.append($('<a>', {href: eng.url, target: "_blank"})
-                 .append(eng.text))
-         .append("  ");
-    }
-
-    return p;
-}
-
-
-function createMoviePage(itemid) {
+function createDetailInfoPage(item, presentor) {
     var div = $('<div>').addClass("movie_info");
-    var item = vdb.find(a => a.id == itemid || a.title == itemid);
-
     var tbl = $('<table>').addClass("table movie_info table-striped table-bordered proptable");
-    for (var p in item) {
+    Object.keys(item).filter(p => p != "gallary" && !p.startsWith("_")).forEach(p => {
         var content = $('<td>');
-        if (p == "artists") {
-            content.append(createArtistLinks(item));
-        } else if (p == "bookmark") {
-            content.append(createBookmarkLinks(item));
+        let text = item[p];
+        let k = p;
+        
+        if (p === "name") {
+            let aliases = getOtherAlias(item.name);
+            if (aliases.length > 0) {
+                text = text + " (" + aliases.join(", ") + ")";
+            }
+            content.text(text);
+            k = $("<a>").text(p).click(()=>{
+                window.location = window.location + "&_vt=normal";
+            });
+        } else if (opt(presentor, "group_properties", []).indexOf(p) >= 0) {
+            content.append(createLinkContent(item, p, false));
         } else {
-            content.text(item[p]);
+            content.append(uistr(item, p, presentor));
         }
         
         tbl.append($('<tr>')
-                   .append($('<td class="shrink">' + p + '</td>'))
+                   .append($('<td class="shrink">').append(k))
                    .append(content)
         );
+    });
+
+    div.append(tbl);
+
+    // create action bar
+    let actions = getDefaultSearchActions();
+    if (presentor && presentor.actions) {
+        actions = presentor.actions;
+    }
+    let actionbar = $("<div>").addClass("btn-toolbar");
+    actions.forEach(function(act) {
+        let btn = $("<button>").addClass("btn detail-toolbar-btn").text(act.name);
+
+        var rgbstr = "rgb(" + hashcolor(act.name, 0.1, 1).join(",") + ")";
+        
+        btn.css("background-color", rgbstr);
+        
+        btn.click(() => getAlias(item.name).forEach(n => act.action(n)));
+        actionbar.append(btn);
+    });
+
+    div.append(actionbar).append($("<br>"));
+
+    var imgfile = getImage(item.name);
+    if (imgfile) {
+        var coverimg = $('<img>', {src: imgfile}).addClass("cover");
+        var cover = $('<a>', {href: imgfile}).append(coverimg);
+        div.append(cover);
     }
 
-    tbl.append($('<tr>')
-        .append($('<td class="shrink">').append(createSmallPlayButton(item)))
-        .append($('<td>').text("Search in: ").append(createSearchLinks(itemid))));
-
-    var coverfile = getCoverFileName(item);
-    var previewfile = getPreviewFileName(item);
-    var coverimg = $('<img>', {src: getCoverFileName(item)}).addClass("cover");
-    var previewimg = $('<img>', {src: getPreviewFileName(item)}).addClass("cover").error(function(){
-        $(this).parent().hide();
-    });
-    var cover = $('<a>', {href: coverfile}).append(coverimg);
-    var preview = $('<a>', {href: previewfile}).append(previewimg);
-    
-    div
-        .append(tbl)
-        .append(cover)
-        .append(preview)
-        .append($('<br>'))
-        .append($('<br>'))
-        .append(createPanel(createImageGallary(imagedir + "/gallary/" + itemid), "panel-default", "image gallary"))
-    ;
-
-    div.find("#play").click(() => playMovie(itemid));
-    
+    var gallary = createGallary([item], false);
+    if (gallary.children().length > 0) {
+        div.append(createPanel(gallary, "panel-default", "gallary"));
+    }
+   
     return div;
 }
 
-function createArtistPage(artist) {
-    console.log("creating artist page for " + artist);
-    var artistInfo = findArtistByName(artist) || {};
-    var primaryName = ("name" in artistInfo) ? artistInfo.name[0] : artist;
-    var div = $('<div>');
-    
-    var adb = [];
-    for (var i in vdb) {
-        var item = vdb[i];
-        if (matchArtist(item, primaryName)) {
-            adb.push(item);
-        }
-    }
-
-    var searchSpan = $('<span>').text("Search '" + primaryName + "' in: ").append(createSearchLinks(primaryName));
-
-    var proptable = $('<table>').addClass("table table-striped table-bordered proptable");
-    for (var p in artistInfo) {
-        proptable.append($('<tr>')
-                   .append($('<td class="shrink">' + p + '</td>'))
-                   .append($('<td>').text(artistInfo[p])));
-    }
-    proptable.append($('<tr>')
-               .append($('<td colspan=2>').append(searchSpan)));
-
-    div.append(proptable);
-    
-    div.append(createPanel(createVideoScene(adb, settings.videoscene.artist), "panel-info", "contributions"));
-    var gallary = createPanel(createImageGallary(imagedir + "/gallary/" + primaryName), "panel-danger", "image gallary");
-    div.append(gallary);
-    return div;
+function createActionSpan(act, actname, itemname) {
+    return $("<span>").addClass("action").text(actname).click(() => act.action(itemname));
 }
 
 function createPanel(content, panelStyle, heading) {
-    var panel = $('<div>').addClass("panel").addClass(panelStyle);
-    panel.append($('<div>').addClass("panel-heading").text(heading));
-    panel.append($('<div class="panel-body">').append(content));
+    var panel = $('<div>').addClass("card mb-3").addClass(panelStyle);
+    panel.append($('<div>').addClass("card-header").text(heading));
+    panel.append($('<div class="card-body">').append(content));
     return panel;
 }
 
-function createVendorPage(vendor) {
-    var db = vdb.filter(function(item){
-        return getVideoVendor(item) == vendor;
-    });
-
-    return createVideoScene(db, settings.videoscene.other);
+function applyCheckState(obj, val) {
+    //obj.find("i").removeClass("fa-square").removeClass("fa-check-square").addClass(val? "fa-check-square" : "fa-square");
+    obj.removeClass("btn-secondary btn-success").addClass(val? "btn-success" : "btn-secondary");
 }
 
 function createVideoScene(db, sceneSetting) {
     var div = $('<div>');
 
-    // the name align with the buttons defined in scenetoolbar
-    var views = {
-        table: createDataTable(db),
-        wall: createCoverWall(db),
-        group: createGroupedLinks(db),
-        bookmark: createBookmarks(db)
+    let applyTextState = function(state, obj, btn) {
+        applyCheckState(btn, state);
+        if (state) {
+            obj.find("figcaption").show();
+        } else {
+            obj.find("figcaption").hide();
+        }
     };
-    setColumnWidth(views.wall, sceneSetting.coverViewColumnWidth);
 
+    let applyImageState = function(state, obj, btn) {
+        applyCheckState(btn, state);
+        if (state) {
+            obj.find("video").show();
+            obj.find("img").show();
+        } else {
+            obj.find("video").hide();
+            obj.find("img").hide();
+        }
+    };
+
+    let applyRandomState = function(state, obj, btn) {
+        applyCheckState(btn, state);
+        if (!obj.hasClass("freewall")) obj = obj.find(".freewall");
+        if (state) {
+            obj.shuffleChildren();
+        } else {
+            obj.unShuffleChildren();
+        }
+    };
+
+    let applyGallaryState = function(type, state, obj, btn) {
+        applyCheckState(btn, state);
+        if (!obj.hasClass("freewall")) obj = obj.find(".freewall");
+        if (state) {
+            obj.find(`.${type}-figure`).show();
+        } else {
+            obj.find(`.${type}-figure`).hide();
+        }
+    };
+
+    // the name align with the buttons defined in scenetoolbar
+    var viewFactory = {
+        table: createDataTable,
+        cover: function (db) {
+            let v = createCoverWall(db);
+            setColumnWidth(v, sceneSetting.cover_column_width);
+            applyTextState(sceneSetting.cover_showinfo, v, div.find(".cover-layout-tools .showinfo"));
+            applyRandomState(sceneSetting.cover_random, v, div.find(".cover-layout-tools .random"));
+            return v;
+        },
+        group: createGroupedLinks,
+        gallary: function (db) {
+            let v = createGallary(db, true);
+            setColumnWidth(v, sceneSetting.gallary_column_width);
+            applyTextState(sceneSetting.gallary_showinfo, v, div.find(".gallary-layout-tools .showinfo"));
+            applyRandomState(sceneSetting.gallary_random, v, div.find(".gallary-layout-tools .random"));
+            applyImageState(sceneSetting.gallary_showimage, v, div.find(".gallary-layout-tools .image"));
+            applyGallaryState("gallary", sceneSetting.gallary_showgallary, v, div.find(".gallary-layout-tools .gallary"));
+            applyGallaryState("bookmark", sceneSetting.gallary_showbookmark, v, div.find(".gallary-layout-tools .bookmark"));
+            return v;
+        }
+    };
+    var views = {};
+    
     div.append($('#templates > #scenetoolbar').clone());
-    for (var i in views) {
-        views[i].addClass("scene_view");
-        views[i].addClass(i + "_view");
-        div.append(views[i]);
+    for (const name in viewFactory) {
+        views[name] = $("<div>");
+        views[name].addClass("scene_view");
+        views[name].addClass(name + "_view");
+        div.append(views[name]);
     }
 
-    div.find(".layout_btn").click((function(d){
-        return function() {
-            var myid = $(this).attr('id');
-            var r = /^btn_(.*)_layout$/.exec(myid);
-            var layout = r[1];
+    div.find(".layout_btn").click(function() {
+        var myid = $(this).attr('id');
+        var r = /^btn_(.*)_layout$/.exec(myid);
+        var layout = r[1];
 
-            console.log("swith to " + layout + " layout");
-            d.find(".scene_view").hide();
-            d.find("." + layout + "_view").show();
-            d.find(".layout_btn").removeClass("btn-primary").addClass("btn-default");
-            $(this).removeClass("btn-default").addClass("btn-primary");
-
-            if (layout == "wall") {
-                d.find(".walltools").show();
-            } else {
-                d.find(".walltools").hide();
-            }
-
-            sceneSetting.style = layout;
-            saveSettings();
+        console.log("swith to " + layout + " layout");
+        div.find(".scene_view").hide();
+        let newview = div.find("." + layout + "_view");
+        if (newview.children().length === 0) {
+            newview.append(viewFactory[layout](db));
         }
-    })(div));
+        newview.show();
+        div.find(".layout_btn").removeClass("btn-primary").addClass("btn-secondary");
+        $(this).removeClass("btn-secondary").addClass("btn-primary");
 
-    div.find("#zoomin").click((function(w){
-        return function() {
-            sceneSetting.coverViewColumnWidth = decreaseColumn(w);
-            saveSettings();
-        }
-    })(views.wall));
+        div.find(".layout-tools").hide();
+        div.find(`.${layout}-layout-tools`).show();
+        div.data("layout", layout);
+        div.data("current_view", newview);
 
-    div.find("#zoomout").click((function(w){
-        return function() {
-            sceneSetting.coverViewColumnWidth = increaseColumn(w);
-            saveSettings();
-        }
-    })(views.wall));
+        sceneSetting.layout = layout;
+        saveSettings();
+    });
 
-    div.find("#showinfo").click((function(w){
-        return function() {
-            if ($(this).hasClass("btn-primary")) {
-                $(this).removeClass("btn-primary").addClass("btn-default");
-                w.find("figcaption").hide();
-            }
-            else {
-                $(this).removeClass("btn-default").addClass("btn-primary");
-                w.find("figcaption").show();
-            }
-        }
-    })(views.wall));
+    div.find(".zoomin").click(function(){
+        sceneSetting[`${div.data("layout")}_column_width`] = decreaseColumn(div.data("current_view").find(".freewall"));
+        saveSettings();
+    });
 
-    div.find("#random").click((function(w){
-        return function() {
-            if ($(this).hasClass("btn-primary")) {
-                $(this).removeClass("btn-primary").addClass("btn-default");
-                w.unShuffleChildren();
-                sceneSetting.coverViewRandom = false;
-                saveSettings();
-            }
-            else {
-                $(this).removeClass("btn-default").addClass("btn-primary");
-                w.shuffleChildren();
-                sceneSetting.coverViewRandom = true;
-                saveSettings();
-            }
-        }
-    })(views.wall));
+    div.find(".zoomout").click(function(){
+        sceneSetting[`${div.data("layout")}_column_width`] = increaseColumn(div.data("current_view").find(".freewall"));
+        saveSettings();
+    });
 
-    div.find("#item_count").text(" " + db.length);
-    div.find("#btn_" + sceneSetting.style + "_layout").click();
-    if (sceneSetting.coverViewRandom) {
-        div.find("#random").click();
-    }
+    div.find(".showinfo").click(function() {
+        let propname = `${div.data("layout")}_showinfo`;
+        sceneSetting[propname] = !sceneSetting[propname];
+        saveSettings();
+        applyTextState(sceneSetting[propname], div.data("current_view"), $(this));
+    });
+
+    div.find(".random").click(function() {
+        let propname = `${div.data("layout")}_random`;
+        sceneSetting[propname] = !sceneSetting[propname];
+        saveSettings();
+        applyRandomState(sceneSetting[propname], div.data("current_view"), $(this));
+    });
+
+    div.find(".image").click(function() {
+        let propname = `${div.data("layout")}_showimage`;
+        sceneSetting[propname] = !sceneSetting[propname];
+        saveSettings();
+        applyImageState(sceneSetting[propname], div.data("current_view"), $(this));
+    });
+    div.find(".gallary").click(function() {
+        let propname = `${div.data("layout")}_showgallary`;
+        sceneSetting[propname] = !sceneSetting[propname];
+        saveSettings();
+        applyGallaryState("gallary", sceneSetting[propname], div.data("current_view"), $(this));
+    });
+    div.find(".bookmark").click(function() {
+        let propname = `${div.data("layout")}_showbookmark`;
+        sceneSetting[propname] = !sceneSetting[propname];
+        saveSettings();
+        applyGallaryState("bookmark", sceneSetting[propname], div.data("current_view"), $(this));
+    });
+
+    div.find("#btn_" + sceneSetting.layout + "_layout").click();
+
     return div;
-}
-
-function shuffle(a) {
-    var j, x, i;
-    for (i = a.length; i; i--) {
-        j = Math.floor(Math.random() * i);
-        x = a[i - 1];
-        a[i - 1] = a[j];
-        a[j] = x;
-    }
-}
-
-function removeFromArray(a, b) { 
-    var pos = a.indexOf(b);
-    if (pos >= 0) {
-        a.splice(pos, 1); 
-        return true; 
-    } 
-    return false; 
 }
 
 function updateTagHitCounts(db) {
     $('#tagfilter > div').each(function() {
         var count = 0;
         var tag = $(this).data("tag");
-        for (var i in db) {
-            var item = db[i];
-            if (item.tags.indexOf(tag) >= 0) count++;
+        for (var item of db) {
+            if (item._tags.indexOf(tag) >= 0) count++;
         }
         $(this).find(".count").text("(" + count + ")");
     });
 }
 
-function initTagFilter() {
-    var div = $('#tagfilter');
+function getDefaultSearchActions() {
+    return [
+        {
+            name: "google",
+            action: x => window.open("https://www.google.com/search?q=" + x),
+        },
+        {
+            name: "baidu",
+            action: x => window.open("http://www.baidu.com/s?wd=" + x),
+        },
+        {
+            name: "bing",
+            action: x => window.open("https://www.bing.com/search?q=" + x),
+        },
+        {
+            name: "豆瓣",
+            action: x => window.open("https://www.douban.com/search?q=" + x),
+        },
+        {
+            name: "115",
+            // https://115.com/?url={/?aid=-1&search_value=TEXT&ct=file&ac=search&is_wl_tpl=1&submode=wangpan&mode=search}
+
+            action: x => {
+                const midpart=encodeURIComponent("/?aid=-1&search_value=" + x + "&ct=file&ac=search&is_wl_tpl=1");
+                window.open(`https://115.com/?url=${midpart}&submode=wangpan&mode=search`);
+            }
+        }
+    ];
+}
+
+function alltags(item, ux) {
     var tags = [];
-    for (var i in vdb) {
-        var item = vdb[i];
-        for (var j in item.tags) {
-            tags.push(item.tags[j]);
+    for (const prop of ux.taggble_properties) {
+        if (prop in item) {
+            if (item[prop] instanceof Array) {
+                for (const arrayitem of item[prop]) {
+                    tags.push(String(arrayitem));
+                }
+            } else {
+                tags.push(String(item[prop]));
+            }
         }
     }
+    return tags;
+}
 
-    var tg = groupSame(tags);
+function getTagFilterString(filters) {
+    return filters.map(g => g.tags.map(x => (x.invert?"!":"") + x.tagname).join("+")).join(" ");
+}
 
-    for (var i in settings.tagfilter) {
-        var tag = settings.tagfilter[i];
-        if (!(tag in tg.frequency))
-            removeFromArray(settings.tagfilter, tag);
+function cleanupUnknownTags(filters, obj) {
+    let ret = [];
+    for (let f of filters) {
+        let g = f.tags.filter(x => x.tagname in obj);
+        if (g.length > 0) ret.push({tags:g, colorIndex:f.colorIndex});
     }
+    return ret;
+}
+
+function removeTag(filters, tag) {
+    let ret = [];
+    for (let f of filters) {
+        let g = f.tags.filter(x => x.tagname != tag);
+        if (g.length > 0) ret.push({tags:g, colorIndex:f.colorIndex});
+    }
+    return ret;
+}
+
+function findGroup(filters, tagname) {
+    for (const f of filters) {
+        const t = f.tags.find(x => x.tagname == tagname);
+        if (t) {
+            return [f.colorIndex, t];
+        }
+    }
+    return [-1, null];
+}
+
+function findUnusedColorIndex(filters) {
+    for (let i = 0; i < 100; i++) {
+        used = false;
+        for (const f of filters) {
+            if (f.colorIndex == i) {
+                used = true;
+                break;
+            } 
+        }
+        if (!used) return i;
+    }
+    return -1;
+}
+
+function updateTagColor(t, colorIndex) {
+    const predefinedHues = [120, 0, 240, 180, 300, 60];
+    if (colorIndex == -1) {
+        t.css("color", "");
+        t.css("background-color", "");
+    } else {
+        const hue = colorIndex < predefinedHues.length? predefinedHues[colorIndex] : hash(`filtergroup${colorIndex}`) * 360;
+        if (t.hasClass("invertselected")) {
+            t.css("background-color", "black");
+            t.css("color", "rgb(" + hsv2rgb255(hue, 0.9, 1).join(",") + ")");
+        } else {
+            t.css("background-color", "rgb(" + hsv2rgb255(hue, 0.2, 1).join(",") + ")");
+            t.css("color", "");
+        }
+    }
+}
+
+function initTagFilter() {
+    var div = $('#tagfilter');
+
+    var tg = groupSame(DATABASE.reduce(function(r, x) {
+        r.push(...x._tags);
+        return r;
+    }, []));
+
+    SETTINGS.tagfilter = cleanupUnknownTags(SETTINGS.tagfilter, tg.frequency);
     saveSettings();
 
-    $("#btn_tag").text(settings.tagfilter.join(" "));
+    $("#btn_tag").text(getTagFilterString(SETTINGS.tagfilter));
 
-    for (var i in tg.sortedArray) {
-        var t = tg.sortedArray[i];
+    let tagClickHandler = function() {
+        const tagname = $(this).data("tag");
+        let newfilter = removeTag(SETTINGS.tagfilter, tagname);
+
+        if (newfilter.length == 0) newfilter.push({tags:[], colorIndex:0});
+        
+        if ($("#btn_tag_group").hasClass("invertselected")) {
+            $("#btn_tag_group").click();
+            if (newfilter[newfilter.length-1].tags.length > 0) {
+                newfilter.push({tags:[], colorIndex:findUnusedColorIndex(newfilter)});
+            }
+        }
+        
+        let activeFilterGroup = newfilter[newfilter.length - 1];
+
+        if ($("#btn_tag_invert").hasClass("invertselected")) {
+            $(this).removeClass("selected").addClass("invertselected");
+            activeFilterGroup.tags.push({invert: true, tagname: tagname});
+            $("#btn_tag_invert").click();
+        } else {
+            // invselected => unselected
+            // selected => unselected
+            // unselected => selected
+            if ($(this).hasClass("invertselected")) {
+                $(this).removeClass("invertselected").removeClass("selected");
+            } else {
+                $(this).toggleClass("selected");
+            }
+            if ($(this).hasClass("selected")) {
+                activeFilterGroup.tags.push({invert: false, tagname: tagname});
+            }
+        }
+        SETTINGS.tagfilter = newfilter;
+        updateTagColor($(this), findGroup(SETTINGS.tagfilter, tagname)[0]);
+        $("#btn_tag").text(getTagFilterString(SETTINGS.tagfilter));
+        saveSettings();
+        refreshView();
+    };
+
+    tags = tg.sortedArray;
+    if (UX.tag_order) {
+        // put tag_order to the begining, then others
+        tags = [...UX.tag_order.filter(x => tg.sortedArray.includes(x)),
+                ...tg.sortedArray.filter(x => !UX.tag_order.includes(x))];
+    }
+
+    let maxwidth = 0;
+    tags.forEach(function(t){
         var s = $('<div class="tag">');
         s.append($('<div class="glyphicon glyphicon-tag tagimg"/>'));
         s.append(t);
         s.append($('<div class="count">'));
-        if (settings.tagfilter.indexOf(t) >= 0) {
-            s.addClass("selected");
+
+        const r = findGroup(SETTINGS.tagfilter, t);
+        if (r[1]) {
+            s.addClass(r[1].invert? "invertselected" : "selected");
         }
+        updateTagColor(s, r[0]);
 
         s.data("tag", t);
-        s.on("click", function() {
-            $(this).toggleClass("selected");
-            if ($(this).hasClass("selected")) {
-                settings.tagfilter.push($(this).data("tag"));
-            } else {
-                removeFromArray(settings.tagfilter, $(this).data("tag"));
-            }
-            $("#btn_tag").text(settings.tagfilter.join(" "));
-            saveSettings();
-            refreshView();
-        });
+        s.click(tagClickHandler);
 
         div.append(s);
         div.append($('<div class="tagspacer">'));
-    }
+        if (s.outerWidth() > maxwidth) maxwidth = s.outerWidth();
+    });
+
+    // inverse selector
+    let is = $('<div class="tag" id="btn_tag_invert">');
+    is.append("☯ INVERSE");
+    is.click(function(){
+        $(this).toggleClass("invertselected");
+    });
+    div.append(is);
+    div.append($('<div class="tagspacer">'));
+
+    // group selector
+    let gs = $('<div class="tag" id="btn_tag_group">');
+    gs.append("+ GROUP");
+    gs.click(function(){
+        $(this).toggleClass("invertselected");
+    });
+    div.append(gs);
+    div.append($('<div class="tagspacer">'));
+
+    MINIMUM_TAG_WIDTH = maxwidth + 70;
 
     layoutTagFilters();
     $(window).resize(function(){
@@ -1092,53 +1287,55 @@ function initTagFilter() {
     });
 }
 
-function clearTagFilters() {
-    var tags = $('#tagfilter').find(".tag");
-    tags.each(function(){
-        $(this).removeClass("selected");
-    });
-    settings.tagfilter = [];
-}
-
 function layoutTagFilters() {
     var div = $('#tagfilter');
+    
     // div.width() will return a rounded value, which sometimes is not accurate
     var w = div[0].getBoundingClientRect().width;
     var tags = div.find(".tag");
     var spacers = div.find(".tagspacer");
-    var e = tags.outerWidth();
+    let spacer_width = 5;
 
     spacers.show();
 
-    // e * cols + (cols-1) * 5 < w
-    var cols = Math.floor((w + 5) / (e + 5));
-    if (cols == 0) {
+    // MINIMUM_TAG_WIDTH * cols + (cols-1) * spacer_width + extra_room = w
+    const cols = Math.floor((w + spacer_width) / (MINIMUM_TAG_WIDTH + spacer_width));
+    const extra_room = w - MINIMUM_TAG_WIDTH * cols - (cols - 1) * spacer_width;
+
+    if (cols === 0) {
+        tags.outerWidth(MINIMUM_TAG_WIDTH);
         spacers.width(0);
         spacers.hide();
         return;
-    } else if (cols == 1) {
-        // set spacer width + tag width == w - 1 to make sure line break
-        spacers.width(w - 1 - e);
+    } else if (cols >= tags.length) {
+        tags.outerWidth(MINIMUM_TAG_WIDTH);
+        spacers.width(spacer_width);
+        spacers.eq(spacers.length - 1).width(0);
         return;
     }
 
-    var totalspace = w - e * cols;
-    var count = tags.length;
-    var singlespace = Math.floor(totalspace / (cols - 1));
-    var reminder = totalspace % (cols - 1);
-
-    console.log("div resize: " + w + "," + e);
-    console.log("cols: "+ cols + ", spaces: " + totalspace + "," + singlespace);
-
-    for (var i = 0; i < count; i++) {
-        var col = i % cols;
-        var space = singlespace;
-        if (col == cols - 1) {
-            space = 0;
-        } else if (col >= cols - 1 - reminder) {
-            space = singlespace + 1;
+    // extend tags width to consume extra_room as much as possible
+    let tags_width = MINIMUM_TAG_WIDTH + Math.floor(extra_room / cols);
+    tags.outerWidth(tags_width);
+    
+    // extend first (extra_room % cols) spacers to consume the remaining extra_room
+    const remaining = extra_room % cols;
+    for (let i = 0; i < tags.length; i++) {
+        const col = i % cols;
+        let spacer = spacers.eq(i);
+        if (col === cols - 1) {
+            spacer.width(0);
+            spacer.hide();
+        } else if (col < Math.floor(remaining)) {
+            spacer.width(spacer_width + 1);
+        } else if (col == Math.floor(remaining)) {
+            spacer.width(spacer_width + remaining % 1);
         }
-
-        spacers.eq(i).width(space);
+        else {
+            spacer.width(spacer_width);
+        }
     }
+
+    //console.log("div resize: " + w );
+    //console.log([cols, extra_room, MINIMUM_TAG_WIDTH, tags_width, remaining]);
 }

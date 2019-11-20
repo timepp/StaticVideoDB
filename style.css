@@ -7,17 +7,17 @@ html {
 
 body {
     margin: 15px;
-    font-family: monospace, QingYuan;
-    -ms-user-select: none; 
+    font-family: Consolas, QingYuan;
 }
 
 :focus {
-    outline: 0;
+    outline: 0 !important;
+    box-shadow: none !important;
 }
 
-.btn:focus {
-    outline: none;
-  }
+.bootstrap-select {
+    outline: 0 !important;
+}
 
 a {
     cursor: pointer;
@@ -31,14 +31,18 @@ figure img {
     cursor: pointer;
 }
 
-.smallplay {
+.smallplay,.action {
+    display: inline-block;
     cursor: pointer;
     color: lightgray;
 }
 
-.smallplay:hover {
+.smallplay:hover,.action:hover {
     color: green;
-    transform: scale(1.5);
+}
+
+video::-webkit-media-controls-start-playback-button {
+    display:none;
 }
 
 .freewall {
@@ -60,6 +64,11 @@ div.freewall figure {
     column-break-inside: avoid;
 }
 
+div.freewall figure img,video {
+    width: 100%; height: auto;
+    cursor: pointer;
+}
+
 div.freewall figure img {
     width: 100%; height: auto;
     cursor: pointer;
@@ -70,6 +79,10 @@ div.freewall figure figcaption {
     color: #444;
     line-height: 1.5;
     margin-top: 10px;
+}
+
+div.freewall figure.video {
+    border: 2px solid pink;
 }
 
 div.freewall small { 
@@ -84,12 +97,12 @@ div.freewall small a {
     text-decoration: none; 
     transition: .4s color;
 }
-
+/*
 div.freewall:hover figure:hover {
     border-color: #66afe9;
     box-shadow: inset 5px rgba(0,0,0,.075), 0 0 8px rgba(102, 175, 233, 0.6);
 }
-
+*/
 @media screen and (max-width: 750px) { 
     .freewall { column-gap: 0px; }
     .freewall figure { width: 100%; }
@@ -113,8 +126,11 @@ td.shrink {
     white-space:nowrap;
 }
 
+td {
+    padding: 10px !important;
+}
+
 #tagfilter .tag {
-    width: 120px;
     border: 1px solid #CCCCCC;
     border-top-left-radius: 4px;
     border-bottom-right-radius: 4px;
@@ -141,6 +157,11 @@ td.shrink {
     background-color: #CCFFCC;
 }
 
+#tagfilter .tag.invertselected {
+    background-color: #0A0A0A;
+    color: #00ff00;
+}
+
 .count {
     margin-right: 5px;
     margin-left: 5px;
@@ -159,4 +180,28 @@ img.portrait {
 img.cover {
     max-width: 100%;
     padding-bottom: 5px;
+}
+
+.detail-toolbar-btn {
+    border-color: lightgray;
+}
+
+.expfilter {
+    border-color: hotpink !important;
+}
+
+#searchas {
+    left: 40px;
+}
+
+#scenetoolbar .btn-group {
+    margin-bottom: 5px;
+}
+
+#mainpage .input-group {
+    margin-bottom: 5px;
+}
+
+.stress {
+    background: lightgreen;
 }

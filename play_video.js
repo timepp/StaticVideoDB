@@ -5,21 +5,54 @@
 // the video name is not required to be full name, part name is OK.
 // requires everything to work properly.
 
+var fso = new ActiveXObject("Scripting.FileSystemObject");
+
 function play(path, offset) {
     var shell = new ActiveXObject("WScript.Shell");
     var value = offset + "=" + path;
+
     try {
         shell.RegDelete("HKEY_CURRENT_USER\\SOFTWARE\\Daum\\PotPlayerMini64\\RememberFiles\\");
-        shell.RegWrite("HKEY_CURRENT_USER\\SOFTWARE\\Daum\\PotPlayerMini64\\RememberFiles\\0", value);
-    } catch (e) {
+    } catch (e) {}
+    
+    shell.RegWrite("HKEY_CURRENT_USER\\SOFTWARE\\Daum\\PotPlayerMini64\\RememberFiles\\0", value);
+    shell.RegWrite("HKEY_CURRENT_USER\\SOFTWARE\\Daum\\PotPlayerMini64\\Settings\\RememberPosition", 1);
         
-    }
     var shellapp = new ActiveXObject("Shell.Application");
     shellapp.ShellExecute(path);
 }
 
+// filter: regex for match file or dir
+// depth: 1 for immediately children, 0 for fully recursive
+// returns:
+// [ subdir1\, subdir1\file1, subdir1\file2, subdir1\subdir2\, subdir1\subdir2\file3, subdir3\file5, file6, ...]
+function glob(dir, filter, depth, arr, subdir) {
+    if (!arr) arr = [];
+    if (!subdir) subdir = "";
+    if (depth == undefined) depth = 0;
+    depth--;
+    var d = fso.GetFolder(subdir ? dir + "\\" + subdir : dir);
+    for (var fc = new Enumerator(d.files); !fc.atEnd(); fc.moveNext()) {
+        var f = fc.item();
+        if (!filter || filter.test(f.Name)) {
+            arr.push(subdir + (subdir? "\\" : "") + f.Name);
+        }
+    }
+    for (var fc = new Enumerator(d.SubFolders); !fc.atEnd(); fc.moveNext()) {
+        var f = fc.item();
+        if (!filter || filter.test(f.Name)) {
+            arr.push(subdir + (subdir? "\\" : "") + f.Name + "\\");
+        }
+        if (depth != 0) {
+            glob(dir, filter, depth, arr, subdir + (subdir? "\\" : "") + f.Name);
+        }
+    }
+    return arr;
+}
+
 function findMediaUsingEverything(keyword) {
     var cmd = "es.exe \"MATCHER\"".replace("MATCHER", keyword);
+    //WScript.Echo(cmd);
     var content = RunCommandAndGetResult(cmd).output;
     var paths = content.split(/\r?\n/);
     var videofilepattern = /.*\.(avi|mp4|rmvb|mkv|wmv|mpg)$/;
@@ -27,46 +60,45 @@ function findMediaUsingEverything(keyword) {
         var path = paths[i];
         if (path.match(videofilepattern)) return path;
     }
-    return "";
+    return null;
 }
 
 function findMedia(itemid) {
-    var fso = new ActiveXObject("Scripting.FileSystemObject");
+    itemid = decodeURIComponent(itemid);
+    var itemidprefix = itemid.split(" ")[0];
+    var path = null;
 
-    var path = findMediaUsingEverything(itemid);
-    if (fso.FileExists(path)) {
-        return path;
-    }
+    if (path == null) path = findMediaInMediaFolder(itemid);
+    if (path == null) path = findMediaInMediaFolder(itemidprefix);
+//    if (path == null) path = findMediaUsingEverything(itemid);
+//    if (path == null) path = findMediaUsingEverything(itemidprefix);
 
-    path = findMediaUsingEverything(decodeURIComponent(itemid));
-    if (fso.FileExists(path)) {
-        return path;
-    }    
-
-    var dir = mediaRoot();
-    var exts = ["mp4", "mkv", "wmv", "avi"];
-    var tried_paths = [];
-    for (var i in exts) {
-        var path = dir + "\\" + itemid + "." + exts[i];
-        tried_paths.push(path);
-        if (fso.FileExists(path)) {
-            return path;
-        }
-    }
-
-    throw { message: "cannot find video file for [" + itemid + "]\n" };
+    if (path == null) throw { message: "cannot find video file for [" + itemid + "]\n" };
+    return path;
 }
 
-function mediaRoot() {
-    var fso = new ActiveXObject("Scripting.FileSystemObject");
+function findMediaInMediaFolder(itemid) {
+    var dirs = mediaDirs();
+    var filter = new RegExp(itemid + ".*\.(avi|mp4|rmvb|mkv|wmv|mpg)$", "i");
+    for (var i in dirs) {
+        var dir = dirs[i];
+        var files = glob(dir, filter, 2);
+        if (files.length > 0) return dir + "\\" + files[0];
+    }
+    return null;
+}
+
+function mediaDirs() {
+    var shell = new ActiveXObject("WScript.Shell");
     var suffix = ":\\" + shell.ExpandEnvironmentStrings("%mediafolder%");
+    var dirs = [];
     for (var i = 65; i < 90; i++) {
         var dir = String.fromCharCode(i) + suffix;
         if (fso.FolderExists(dir)) {
-            return dir;
+            dirs.push(dir);
         }
     }
-    return "";
+    return dirs;
 }
 
 // time to milleseconds
@@ -81,7 +113,6 @@ function parseTime(timestr) {
 
 function RunCommandAndGetResult(cmdline, of, ef) {
     var shell = new ActiveXObject("WScript.Shell");
-    var fso = new ActiveXObject("Scripting.FileSystemObject");
 
     var outfile = of ? of : shell.ExpandEnvironmentStrings("%temp%") + "\\" + fso.GetTempName();
     var errfile = ef ? ef : shell.ExpandEnvironmentStrings("%temp%") + "\\" + fso.GetTempName();
@@ -107,8 +138,6 @@ function RunCommandAndGetResult(cmdline, of, ef) {
 }
 
 function ReadTextFileSimple(filename) {
-    var fso = new ActiveXObject("Scripting.FileSystemObject");
-
     var content = "";
     try {
         var ofile = fso.OpenTextFile(filename, 1);
@@ -141,6 +170,7 @@ function ReadTextFile (path, encoding) {
 function main() {
     var shellapp = new ActiveXObject("Shell.Application");
     var arg = WScript.Arguments(0);
+    //WScript.Echo(arg);
     var regex = /^play:([^@]+)(@(.*))?$/;
     var result = regex.exec(arg);
     if (!result) {

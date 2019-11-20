@@ -8,42 +8,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   
   <link rel="stylesheet" type="text/css" href="thirdparty/bootstrap.min.css">
-  <script type="text/javascript" language="javascript" src="thirdparty/jquery-1.12.0.min.js"> </script>
+  <link rel="stylesheet" type="text/css" href="thirdparty/datatables.min.css">
+  
+    <link rel="stylesheet" type="text/css" href="thirdparty/fontawesome/css/all.css">
+  
+
+  <script type="text/javascript" language="javascript" src="thirdparty/jquery.min.js"> </script>
+  <script type="text/javascript" language="javascript" src="thirdparty/bootstrap.bundle.min.js"> </script>
+  <script type="text/javascript" language="javascript" src="thirdparty/datatables.min.js"> </script>
+  <script type="text/javascript" language="javascript" src="thirdparty/Chart.bundle.min.js"> </script>
+  <script type="text/javascript" language="javascript" src="thirdparty/pinyin-match.js"></script>
 
   <!--
-
+    
+    <link rel="stylesheet" type="text/css" href="thirdparty/bootstrap-combobox.css">
+    <script type="text/javascript" language="javascript" src="thirdparty/bootstrap-combobox.min.js"> </script>
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.6.3/css/all.css" integrity="sha384-UHRtZLI+pbxtHCWp1t77Bi1L4ZtiqrqD80Kn4Z8NTSRyMA2Fd33n5dQ8lWUE00s/" crossorigin="anonymous">
       <link rel="stylesheet" href="http://cdn.static.runoob.com/libs/bootstrap/3.3.7/css/bootstrap.min.css">
       <script src="http://cdn.static.runoob.com/libs/jquery/2.1.1/jquery.min.js"></script>
       <script src="http://cdn.static.runoob.com/libs/bootstrap/3.3.7/js/bootstrap.min.js"></script>
     -->
 
-
-  <link rel="stylesheet" type="text/css" href="thirdparty/dataTables.bootstrap.min.css">
-  <script type="text/javascript" language="javascript" src="thirdparty/jquery.dataTables.min.js">
-  </script>
-  <script type="text/javascript" language="javascript" src="thirdparty/dataTables.bootstrap.min.js">
-  </script>
-
-  <link href="thirdparty/bootstrap-toggle.min.css" rel="stylesheet">
-  <script src="thirdparty/bootstrap-toggle.min.js"></script>
-
   <link rel="stylesheet" type="text/css" href="style.css">
-  <script language="javascript">
-    // pure html is unable to access local files
-    // we need to use javascript to store video information
-    // by default `dbsample/video_db.js` will take effect to show samples
-    // sample will be hidden once you create your own `db/video_db.js` and assign following 3 variables there
-
-    // see `dbsample/video_db.js` for the format of these variables
-    var imagedir = null;
-    var vdb = null;
-    var artistdb = null;
-  </script>
-  <script language="javascript" src="db/video_db.js">
-  </script>
-  <script language="javascript" src="dbsample/video_db.js">
-  </script>
-
+  <script language="javascript" src="common.js"></script>
+  
+  <script language="javascript" src="db/video_db.js"></script>
+  <script language="javascript" src="db/filelist.js"></script>
+  
   <script language="javascript" src="main.js">
   </script>
 
@@ -51,23 +42,54 @@
 
 <body>
 
-  <div id="mainpage" style="display:none">
+  <div id="mainpage" class="container-fluid px-0" style="display:none">
 
-    <div class="row">
-      <div class="col-sm-8">
+    <div class="row justify-content-between">
+      <div class="col-md-7">
         <div class="input-group">
-          <span class="input-group-addon">
-            <span class="glyphicon glyphicon-filter" aria-hidden="true"></span>
-          </span>
-          <input id="filter" type="text" class="form-control" />
+          <div class="input-group-prepend">
+            <span id="filtericon" class="input-group-text"><i class="fa fa-filter"></i></span>
+          </div>
+
+          <input id="filter" type="search" class="form-control"></input>
+          <div class="input-group-append">
+            <button id="btn_clear" class="btn btn-secondary"><i class="fa fa-times"></i></button>
+            <button id="btn_help" class="btn btn-secondary"><i class="fa fa-question"></i></button>
+            <!--
+            <button id="btn_refresh_filelist" class="btn btn-secondary"><i class="fa fa-sync-alt"></i></button>
+            -->
+          </div>
         </div>
       </div>
-      <div class="col-sm-4">
+      <div class="col-md-3">
         <div class="input-group">
-          <span class="input-group-addon">
-            <span class="glyphicon glyphicon-tag" aria-hidden="true"></span>
+          <span class="input-group-prepend">
+            <span class="input-group-text"><i class="fa fa-tag"></i></span>
           </span>
           <button id="btn_tag" class="form-control">aaa bbb ccc</button>
+        </div>
+      </div>
+      <div class="col-md-2">
+        <div class="input-group">
+            <span id="item_count" class="form-control text-primary" style="text-align: center">9999</span>
+            <div class="input-group-append">
+            <button id="btn_refresh_filelist" class="btn btn-secondary"><i class="fa fa-sync-alt"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="help_card" class="card text-white bg-dark" style="margin-top: 10px; display:none">
+      <div class="card-body">
+        <h5 class="card-title">Search Help</h5>
+        <div class="card-text">
+          Example searches: <span style="color:lime">Perfect</span>, <span style="color:lime">2015 car</span> <br />
+          You can use js expressions as filter. e.g. <span style="color:lime">date > "2015"</span>. <br />
+          `i` denotes current index. e.g. <span style="color:lime">i<40</span> will select the first 40 items. <br />
+          Use <span style="color:lime">item.date === undefined</span> if you want to search all items without `date` property. <br />
+          <br />
+          Supported properties below: <br />
+          <span id="help_props"></span>
         </div>
       </div>
     </div>
@@ -82,43 +104,32 @@
   </div>
 
   <div id="templates" style="display:none">
+    <div id="scenetoolbar" class="btn-toolbar">
+      <div class="btn-group mr-2">
+        <button id="btn_table_layout"    class="btn btn-secondary layout_btn"> <i class="fa fa-table"   ></i> </button>
+        <button id="btn_cover_layout"     class="btn btn-secondary layout_btn"> <i class="fa fa-image"   ></i> </button>
+        <button id="btn_group_layout"    class="btn btn-secondary layout_btn"> <i class="fa fa-sitemap"    ></i> </button>
+        <button id="btn_gallary_layout"  class="btn btn-secondary layout_btn"> <i class="fa fa-star"></i> </button>
+      </div>
 
-    <div id="scenetoolbar" class="input-group">
+      <div class="btn-group mr-2 layout-tools cover-layout-tools">
+        <button class="btn btn-secondary zoomout"> <i class="fa fa-search-minus"   ></i> </button>
+        <button class="btn btn-secondary zoomin"> <i class="fa fa-search-plus"   ></i> </button>
+        <button class="btn btn-secondary random"> <i class="fa fa-random"    ></i> </button>
+        <button class="btn btn-secondary showinfo"> <i class="fa fa-list-alt"></i> </button>
+      </div>
 
-      <span class="input-group-btn">
-        <button id="btn_table_layout" class="btn btn-default layout_btn">
-          <span class="glyphicon glyphicon-list" aria-hidden="true"></span>
-        </button>
-        <button id="btn_wall_layout" class="btn btn-default layout_btn">
-          <span class="glyphicon glyphicon-th-large" aria-hidden="true"></span>
-        </button>
-        <button id="btn_group_layout" class="btn btn-default layout_btn">
-          <span class="glyphicon glyphicon-book" aria-hidden="true"></span>
-        </button>
-        <button id="btn_bookmark_layout" class="btn btn-default layout_btn">
-          <span class="glyphicon glyphicon-bookmark" aria-hidden="true"></span>
-        </button>
-        <span style="margin-right:15px;"></span>
-        <button id="zoomout" class="btn btn-default walltools">
-          <span class="glyphicon glyphicon-zoom-out" aria-hidden="true"></span>
-        </button>
-        <button id="zoomin" class="btn btn-default walltools">
-          <span class="glyphicon glyphicon-zoom-in" aria-hidden="true"></span>
-        </button>
-        <button id="random" class="btn btn-default walltools">
-          <span class="glyphicon glyphicon-random" aria-hidden="true"></span>
-        </button>
-        <button id="showinfo" class="btn btn-primary walltools">
-          <span class="glyphicon glyphicon-list-alt" aria-hidden="true"></span>
-        </button>
-      </span>
-
-      <div id="item_count" style="text-align:right"></div>
+      <div class="btn-group mr-2 layout-tools gallary-layout-tools">
+        <button class="btn btn-secondary zoomout"> <i class="fa fa-search-minus"   ></i> </button>
+        <button class="btn btn-secondary zoomin"> <i class="fa fa-search-plus"   ></i> </button>
+        <button class="btn btn-secondary random"> <i class="fa fa-random"    ></i> </button>
+        <button class="btn btn-secondary showinfo"> <i class="fa fa-list-alt"></i> </button>
+        <button class="btn btn-secondary image"> <i class="fas fa-photo-video"></i></button>
+        <button class="btn btn-secondary gallary"> <i class="fas fa-grip-horizontal"></i> </button>
+        <button class="btn btn-secondary bookmark"> <i class="fa fa-bookmark"></i> </button>
+      </div>
     </div>
-
   </div>
-
-  <!-- other DIVs are dynamic created -->
 
 </body>
 
